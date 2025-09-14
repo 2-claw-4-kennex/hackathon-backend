@@ -33,7 +33,7 @@ let transaction = {
 
 // Add a simple "root" route to confirm the server is up
 app.get('/', (req, res) => {
-    res.send('Hello from the PlaySafe Backend! The server is running.');
+    res.send('Hello from the PlaySafe Backend! The server is running meow.');
 });
 
 app.post("/initiate-payment", (req, res) => {
