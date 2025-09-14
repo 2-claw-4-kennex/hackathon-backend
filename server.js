@@ -34,33 +34,18 @@ let transaction = {
 // Add a simple "root" route to confirm the server is up
 app.get('/', (req, res) => {
     res.send('Hello from the PlaySafe Backend! The server is running meow.');
-});
-
-app.post("/initiate-payment", (req, res) => {
+});app.post("/initiate-payment", (req, res) => {
     const { cardNumber } = req.body;
     const MAGIC_CARD_NUMBER = "1234-5678-9012-3456";
-    const PARENT_DEVICE_TOKEN = process.env.PARENT_DEVICE_TOKEN;
 
     if (cardNumber.replace(/-/g, '') === MAGIC_CARD_NUMBER.replace(/-/g, '')) {
-        console.log("Protected card detected! Sending push notification...");
+        console.log("Protected card detected! Simulating notification dispatch...");
         transaction.status = "pending";
 
-        if (!PARENT_DEVICE_TOKEN || PARENT_DEVICE_TOKEN === 'placeholder') {
-            console.error("Parent device token is not set correctly!");
-            return res.status(500).json({ message: "Server is not configured with a valid device token." });
-        }
-
-        const message = {
-          notification: {
-            title: "PlaySafe Approval Required",
-            body: "A payment from your card needs your approval.",
-          },
-          token: PARENT_DEVICE_TOKEN,
-        };
-
         // We are skipping the real send and pretending it worked for the demo.
-console.log("Simulating a successful notification dispatch to Firebase.");
-res.json({ message: "Approval request sent to parent." });
+        console.log("Simulating a successful notification dispatch to Firebase.");
+        res.json({ message: "Approval request sent to parent." });
+
     } else {
         res.status(400).json({ message: "This card is not protected by PlaySafe." });
     }
