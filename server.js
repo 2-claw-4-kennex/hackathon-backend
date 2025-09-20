@@ -1,7 +1,9 @@
 const express = require("express");
 const cors = require("cors");
 const admin = require("firebase-admin");
-const redis = require("redis"); // Import redis
+const redis = require("redis");
+
+const app = express(); // This was the missing line
 
 // --- SETUP ---
 app.use(cors());
@@ -10,16 +12,19 @@ app.use(express.json());
 // --- REDIS CLIENT SETUP ---
 let redisClient;
 (async () => {
-    redisClient = redis.createClient({
-        url: process.env.REDIS_URL // Connect using the URL from Render
-    });
-    redisClient.on("error", (error) => console.error(`Redis Error: ${error}`));
-    await redisClient.connect();
-    console.log("Connected to Redis successfully!");
+    if (process.env.REDIS_URL) {
+        redisClient = redis.createClient({
+            url: process.env.REDIS_URL
+        });
+        redisClient.on("error", (error) => console.error(`Redis Error: ${error}`));
+        await redisClient.connect();
+        console.log("Connected to Redis successfully!");
+    } else {
+        console.warn("REDIS_URL not found. State will not be persistent.");
+    }
 })();
 
 // --- FIREBASE ADMIN SETUP ---
-// ... (This part stays the same)
 if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
     try {
         const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
@@ -47,7 +52,6 @@ app.post("/initiate-payment", async (req, res) => {
 
     if (cardNumber.replace(/-/g, '') === MAGIC_CARD_NUMBER.replace(/-/g, '')) {
         console.log("Protected card detected! Setting status to pending in Redis.");
-        // Set the status to 'pending' in our shared Redis database
         await redisClient.set('transaction_status', 'pending');
 
         console.log("Simulating a successful notification dispatch to Firebase.");
@@ -59,16 +63,14 @@ app.post("/initiate-payment", async (req, res) => {
 });
 
 app.post("/update-status", async (req, res) => {
-    const { newStatus } = req.body; // 'approved' or 'declined'
-    await redisClient.set('transaction_status', newStatus); // Update status in Redis
+    const { newStatus } = req.body;
+    await redisClient.set('transaction_status', newStatus);
     console.log(`Transaction status updated to: ${newStatus}`);
     res.json({ message: "Status updated successfully." });
 });
 
 app.get("/get-status", async (req, res) => {
-    // Get the current status from our shared Redis database
     const status = await redisClient.get('transaction_status');
-    // If nothing is set, default to 'idle'
     res.json({ status: status || 'idle' });
 });
 
