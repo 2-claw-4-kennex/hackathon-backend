@@ -1,14 +1,25 @@
 const express = require("express");
 const cors = require("cors");
 const admin = require("firebase-admin");
-const app = express();
+const redis = require("redis"); // Import redis
 
 // --- SETUP ---
 app.use(cors());
 app.use(express.json());
 
+// --- REDIS CLIENT SETUP ---
+let redisClient;
+(async () => {
+    redisClient = redis.createClient({
+        url: process.env.REDIS_URL // Connect using the URL from Render
+    });
+    redisClient.on("error", (error) => console.error(`Redis Error: ${error}`));
+    await redisClient.connect();
+    console.log("Connected to Redis successfully!");
+})();
+
 // --- FIREBASE ADMIN SETUP ---
-// This checks if the key exists before trying to initialize Firebase
+// ... (This part stays the same)
 if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
     try {
         const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
@@ -23,26 +34,22 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
     console.warn("FIREBASE_SERVICE_ACCOUNT_KEY environment variable not found. Push notifications will not work.");
 }
 
-// --- In-memory "database" ---
-let transaction = {
-  id: "txn_123",
-  status: "idle",
-};
 
-// --- API ENDPOINTS ---
+// --- API ENDPOINTS (Now using Redis) ---
 
-// Add a simple "root" route to confirm the server is up
 app.get('/', (req, res) => {
-    res.send('Hello from the PlaySafe Backend! The server is running meow.');
-});app.post("/initiate-payment", (req, res) => {
+    res.send('Hello from the PlaySafe Backend! The server is running.');
+});
+
+app.post("/initiate-payment", async (req, res) => {
     const { cardNumber } = req.body;
     const MAGIC_CARD_NUMBER = "1234-5678-9012-3456";
 
     if (cardNumber.replace(/-/g, '') === MAGIC_CARD_NUMBER.replace(/-/g, '')) {
-        console.log("Protected card detected! Simulating notification dispatch...");
-        transaction.status = "pending";
+        console.log("Protected card detected! Setting status to pending in Redis.");
+        // Set the status to 'pending' in our shared Redis database
+        await redisClient.set('transaction_status', 'pending');
 
-        // We are skipping the real send and pretending it worked for the demo.
         console.log("Simulating a successful notification dispatch to Firebase.");
         res.json({ message: "Approval request sent to parent." });
 
@@ -51,15 +58,18 @@ app.get('/', (req, res) => {
     }
 });
 
-app.post("/update-status", (req, res) => {
+app.post("/update-status", async (req, res) => {
     const { newStatus } = req.body; // 'approved' or 'declined'
-    transaction.status = newStatus;
+    await redisClient.set('transaction_status', newStatus); // Update status in Redis
     console.log(`Transaction status updated to: ${newStatus}`);
     res.json({ message: "Status updated successfully." });
 });
 
-app.get("/get-status", (req, res) => {
-    res.json({ status: transaction.status });
+app.get("/get-status", async (req, res) => {
+    // Get the current status from our shared Redis database
+    const status = await redisClient.get('transaction_status');
+    // If nothing is set, default to 'idle'
+    res.json({ status: status || 'idle' });
 });
 
 // Listen for requests
