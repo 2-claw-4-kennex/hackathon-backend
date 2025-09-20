@@ -49,13 +49,51 @@ app.get('/', (req, res) => {
 app.post("/initiate-payment", async (req, res) => {
     const { cardNumber } = req.body;
     const MAGIC_CARD_NUMBER = "1234-5678-9012-3456";
+    const PARENT_DEVICE_TOKEN = process.env.PARENT_DEVICE_TOKEN;
 
     if (cardNumber.replace(/-/g, '') === MAGIC_CARD_NUMBER.replace(/-/g, '')) {
         console.log("Protected card detected! Setting status to pending in Redis.");
         await redisClient.set('transaction_status', 'pending');
 
-        console.log("Simulating a successful notification dispatch to Firebase.");
-        res.json({ message: "Approval request sent to parent." });
+        if (!PARENT_DEVICE_TOKEN || PARENT_DEVICE_TOKEN === 'placeholder') {
+            console.error("Parent device token is not set correctly!");
+            return res.status(500).json({ message: "Server is not configured with a valid device token." });
+        }
+
+        // This is the message payload we send to Firebase
+        const message = {
+            notification: {
+                title: "Approval Required",
+                body: "A payment from your card needs your approval.",
+            },
+            token: PARENT_DEVICE_TOKEN,
+
+            // --- HIGH PRIORITY CONFIGURATION ---
+
+            // For Android devices:
+            android: {
+                priority: 'high', // This tells FCM to wake the device and deliver immediately.
+            },
+
+            // For iOS (Apple) devices:
+            apns: {
+                headers: {
+                    'apns-push-type': 'alert', // Required for modern iOS versions.
+                    'apns-priority': '10',     // A value of '10' is for immediate, high-priority delivery.
+                },
+            },
+        };
+
+        // Re-enabling the real send logic for your full build
+        admin.messaging().send(message)
+          .then(response => {
+            console.log("Successfully sent HIGH PRIORITY message:", response);
+            res.json({ message: "Approval request sent to parent." });
+          })
+          .catch(error => {
+            console.log("Error sending message:", error);
+            res.status(500).json({ message: "Failed to send notification." });
+          });
 
     } else {
         res.status(400).json({ message: "This card is not protected by PlaySafe." });
