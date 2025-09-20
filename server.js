@@ -1,9 +1,8 @@
 const express = require("express");
 const cors = require("cors");
-const admin = require("firebase-admin");
 const redis = require("redis");
 
-const app = express(); // This was the missing line
+const app = express();
 
 // --- SETUP ---
 app.use(cors());
@@ -24,23 +23,7 @@ let redisClient;
     }
 })();
 
-// --- FIREBASE ADMIN SETUP ---
-if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
-    try {
-        const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
-        admin.initializeApp({
-          credential: admin.credential.cert(serviceAccount),
-        });
-        console.log("Firebase Admin initialized successfully!");
-    } catch (e) {
-        console.error("Error initializing Firebase Admin:", e);
-    }
-} else {
-    console.warn("FIREBASE_SERVICE_ACCOUNT_KEY environment variable not found. Push notifications will not work.");
-}
-
-
-// --- API ENDPOINTS (Now using Redis) ---
+// --- API ENDPOINTS ---
 
 app.get('/', (req, res) => {
     res.send('Hello from the PlaySafe Backend! The server is running.');
@@ -56,44 +39,32 @@ app.post("/initiate-payment", async (req, res) => {
         await redisClient.set('transaction_status', 'pending');
 
         if (!PARENT_DEVICE_TOKEN || PARENT_DEVICE_TOKEN === 'placeholder') {
-            console.error("Parent device token is not set correctly!");
             return res.status(500).json({ message: "Server is not configured with a valid device token." });
         }
 
-        // This is the message payload we send to Firebase
-        const message = {
-            notification: {
-                title: "Approval Required",
-                body: "A payment from your card needs your approval.",
-            },
-            token: PARENT_DEVICE_TOKEN,
-
-            // --- HIGH PRIORITY CONFIGURATION ---
-
-            // For Android devices:
-            android: {
-                priority: 'high', // This tells FCM to wake the device and deliver immediately.
-            },
-
-            // For iOS (Apple) devices:
-            apns: {
+        // --- NEW: SEND NOTIFICATION VIA EXPO'S PUSH API ---
+        try {
+            await fetch('https://exp.host/--/api/v2/push/send', {
+                method: 'POST',
                 headers: {
-                    'apns-push-type': 'alert', // Required for modern iOS versions.
-                    'apns-priority': '10',     // A value of '10' is for immediate, high-priority delivery.
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'Accept-Encoding': 'gzip, deflate',
                 },
-            },
-        };
-
-        // Re-enabling the real send logic for your full build
-        admin.messaging().send(message)
-          .then(response => {
-            console.log("Successfully sent HIGH PRIORITY message:", response);
-            res.json({ message: "Approval request sent to parent." });
-          })
-          .catch(error => {
-            console.log("Error sending message:", error);
-            res.status(500).json({ message: "Failed to send notification." });
-          });
+                body: JSON.stringify({
+                    to: PARENT_DEVICE_TOKEN,
+                    sound: 'default',
+                    title: 'Approval Required',
+                    body: 'A payment from your card needs your approval.',
+                    priority: 'high' // Set high priority for Expo's servers too
+                }),
+            });
+            console.log("Successfully sent notification request to Expo's server.");
+        } catch (error) {
+            console.error("Error sending notification via Expo:", error);
+        }
+        
+        res.json({ message: "Approval request sent to parent." });
 
     } else {
         res.status(400).json({ message: "This card is not protected by PlaySafe." });
